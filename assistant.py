@@ -13,7 +13,7 @@ client = OpenAI()
 conn = sqlite3.connect('customer_data.db')
 c = conn.cursor()
 
-# Create table if not exists
+# Create table 
 c.execute('''
 CREATE TABLE IF NOT EXISTS customers (
     customer_id INTEGER PRIMARY KEY,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS customers (
 ''')
 conn.commit()
 
-# --- LOAD CSV AND STORE IN DB (only first time) ---
+# -LOAD CSV FILE
 if 'data_loaded' not in st.session_state:
     df = pd.read_csv('data.csv')
     for _, row in df.iterrows():
