@@ -6,9 +6,10 @@ from sklearn.linear_model import LogisticRegression
 import matplotlib.pyplot as plt
 import os
 from openai import OpenAI
+import time
 
-# ✅ Initialize OpenAI client (secure: reads key from env)
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Initialize OpenAI client securely
+client = OpenAI(api_key=os.environ.get("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"))
 
 # --- DATABASE SETUP ---
 conn = sqlite3.connect('customer_data.db')
@@ -24,66 +25,19 @@ CREATE TABLE IF NOT EXISTS customers (
 ''')
 conn.commit()
 
-# --- LOAD CSV AND STORE IN DB (only first time) ---
+# --- LOAD CSV AND STORE IN DB IF NOT ALREADY THERE ---
 if 'data_loaded' not in st.session_state:
     df = pd.read_csv('data.csv')
+
     for _, row in df.iterrows():
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Summarize this customer message politely in one sentence."},
-                {"role": "user", "content": row['conversation']}
-            ]
-        )
-        summary = response.choices[0].message.content
-        c.execute("INSERT OR IGNORE INTO customers (customer_id, conversation, churned, summary) VALUES (?, ?, ?, ?)",
-                  (int(row['customer_id']), row['conversation'], int(row['churned']), summary))
-    conn.commit()
-    st.session_state['data_loaded'] = True
+        # Check if already exists in DB
+        c.execute("SELECT summary FROM customers WHERE customer_id=?", (int(row['customer_id']),))
+        result = c.fetchone()
+        if result:
+            continue  # skip if summary already exists
 
-# --- DASHBOARD UI ---
-st.title("📊 Vodafone AI-powered Customer Assistant")
+        # Call OpenAI once per new row
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
 
-# Load data from DB
-df = pd.read_sql_query("SELECT * FROM customers", conn)
-st.subheader("📄 Customer Data")
-st.write(df)
-
-# --- Churn prediction model ---
-vectorizer = CountVectorizer()
-X = vectorizer.fit_transform(df["conversation"])
-y = df["churned"]
-model = LogisticRegression()
-model.fit(X, y)
-
-# --- Visualize churn distribution ---
-st.subheader("📊 Churn Distribution")
-fig, ax = plt.subplots()
-df["churned"].value_counts().plot(kind="bar", ax=ax)
-ax.set_xticklabels(["Not churned", "Churned"], rotation=0)
-st.pyplot(fig)
-
-# --- Test on new customer message ---
-st.subheader("✏️ Test on new customer message")
-new_text = st.text_input("Enter message:")
-if new_text:
-    # Predict churn
-    new_vec = vectorizer.transform([new_text])
-    pred = model.predict(new_vec)[0]
-    st.write("✅ Prediction:", "Likely to churn" if pred == 1 else "Not likely to churn")
-
-    # Summarize with GPT
-    summary_resp = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "Summarize this message politely in one sentence."},
-            {"role": "user", "content": new_text}
-        ]
-    )
-    summary_text = summary_resp.choices[0].message.content
-    st.write("📄 AI-generated Summary:", summary_text)
-
-    # Store new entry in DB
-    c.execute("INSERT INTO customers (conversation, churned, summary) VALUES (?, ?, ?)",
-              (new_text, int(pred), summary_text))
-    conn.commit()
